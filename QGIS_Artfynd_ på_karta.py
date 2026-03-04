@@ -290,17 +290,31 @@ def delete_if_exists(path, retries=25, wait_s=0.25):
 
     raise last_err
 
-def layer_has_field_with_values(layer, field_name, sample_limit=200):
-    idx = layer.fields().indexFromName(field_name)
+def resolve_field_name(layer, wanted_name):
+    idx = layer.fields().indexFromName(wanted_name)
+    if idx != -1:
+        return layer.fields()[idx].name()
+
+    wanted_norm = str(wanted_name).strip().casefold()
+    for fld in layer.fields():
+        if fld.name().strip().casefold() == wanted_norm:
+            return fld.name()
+    return None
+
+def layer_has_field_with_values(layer, field_name, sample_limit=None):
+    resolved = resolve_field_name(layer, field_name)
+    if not resolved:
+        return False
+    idx = layer.fields().indexFromName(resolved)
     if idx == -1:
         return False
     n = 0
     for f in layer.getFeatures():
-        v = f[field_name]
+        v = f[resolved]
         if v is not None and str(v).strip() != "":
             return True
         n += 1
-        if n >= sample_limit:
+        if sample_limit is not None and n >= sample_limit:
             break
     return False
 
@@ -417,6 +431,11 @@ processing.run("native:createpointslayerfromtable", {
 points_raw = QgsVectorLayer(points_raw_path, "Punkter (raw)", "ogr")
 require_valid(points_raw, f"Could not load points_raw: {points_raw_path}")
 add_layer(points_raw)
+
+# Matcha ArtNr-fält robust (exakt + case/whitespace-insensitive)
+resolved_artnr = resolve_field_name(points_raw, ARTNR_FIELD)
+if resolved_artnr:
+    ARTNR_FIELD = resolved_artnr
 
 # ----------------------------
 # 5–6) Stable species order + ArtNr (do NOT rely on provider order)
@@ -936,8 +955,12 @@ legend.setStyleFont(QgsLegendStyle.Subgroup, QFont("Courier New", 9))
 legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("Courier New", 9))
 legend.setTitle("Teckenförklaring")
 LEGEND_Y = 32
+legend_item_count = len(cats) + (1 if has_knaerot else 0)
+LEGEND_BASE_H_MM = 16
+LEGEND_ROW_H_MM = 6
+legend_h = max(28, min(120, LEGEND_BASE_H_MM + legend_item_count * LEGEND_ROW_H_MM))
 legend.attemptMove(QgsLayoutPoint(RIGHT_PANEL_X, LEGEND_Y, QgsUnitTypes.LayoutMillimeters))
-legend.attemptResize(QgsLayoutSize(RIGHT_PANEL_W, 70, QgsUnitTypes.LayoutMillimeters))
+legend.attemptResize(QgsLayoutSize(RIGHT_PANEL_W, legend_h, QgsUnitTypes.LayoutMillimeters))
 legend.setFrameEnabled(False)
 legend.setBackgroundEnabled(True)
 legend.setBackgroundColor(Qt.white)
@@ -960,11 +983,6 @@ rootg.addLayer(points)
 
 legend.updateLegend()
 layout.addLayoutItem(legend)
-try:
-    # Shrink/expand legend to actual content so spacing below can be dynamic.
-    legend.adjustBoxSize()
-except Exception:
-    pass
 
 # ---- SCALE BAR (bottom-left)
 scalebar = QgsLayoutItemScaleBar(layout)
@@ -1023,13 +1041,16 @@ artlista = QgsLayoutItemLabel(layout)
 layout.addLayoutItem(artlista)
 
 # Position art list directly under legend (dynamic if legend height changes)
+layout.refresh()
 legend_pos = legend.positionWithUnits()
 legend_size = legend.sizeWithUnits()
-ARTLIST_GAP_MM = 2
-artlista_y = legend_pos.y() + legend_size.height() + ARTLIST_GAP_MM
+ARTLIST_GAP_MM = 3
+effective_legend_h = max(legend_size.height(), legend_h)
+artlista_y = legend_pos.y() + effective_legend_h + ARTLIST_GAP_MM
 artlista_h = max(20, 210 - artlista_y)
+artlista_w = min(RIGHT_PANEL_W + 6, 297 - RIGHT_PANEL_X - 2)
 artlista.attemptMove(QgsLayoutPoint(RIGHT_PANEL_X, artlista_y, QgsUnitTypes.LayoutMillimeters))
-artlista.attemptResize(QgsLayoutSize(RIGHT_PANEL_W, artlista_h, QgsUnitTypes.LayoutMillimeters))
+artlista.attemptResize(QgsLayoutSize(artlista_w, artlista_h, QgsUnitTypes.LayoutMillimeters))
 
 # style: white background, no frame
 artlista.setBackgroundEnabled(True)
