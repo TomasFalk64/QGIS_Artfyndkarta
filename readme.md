@@ -1,6 +1,6 @@
 PROGRAM: QGIS_Artfynd_Karta
 
-ÖVERSIKT
+# ÖVERSIKT
 Detta Python-script är avsett att köras i QGIS (PyQGIS) och automatiserar
 processen att skapa en karta över artobservationer. Programmet läser in
 artfynd från en Excel-fil, kopplar samman information om rödlistningsstatus,
@@ -21,12 +21,12 @@ Programmet läser två typer av data:
 - Excel-fil med artfynd
 
 Excel-filen innehåller normalt följande kolumner:
-    - Artnamn
-    - Vetenskapligt namn
-    - Rödlistningsklass
-    - Koordinater (SWEREF 99)
-    - Datum
-    - ArtNr (valfritt)
+- Artnamn
+- Vetenskapligt namn
+- Rödlistningsklass
+- Koordinater (SWEREF 99)
+- Datum
+- ArtNr (valfritt)
 
 Om ArtNr saknas genererar scriptet ett stabilt artnummer sorterat på
 rödlistningsklass (sällsynt först) och artnamn (bokstavsordning).
