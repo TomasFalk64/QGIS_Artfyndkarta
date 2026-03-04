@@ -4,6 +4,11 @@ import processing
 import csv
 import time
 
+try:
+    from openpyxl import load_workbook
+except ImportError:
+    load_workbook = None
+
 from qgis.PyQt.QtCore import Qt, QVariant
 from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtWidgets import QFileDialog, QInputDialog
@@ -30,6 +35,7 @@ from qgis.core import (
     QgsLayoutSize,
     QgsLayoutTableColumn,
     QgsLegendStyle,
+    QgsLineSymbol,
     QgsMarkerSymbol,
     QgsPalLayerSettings,
     QgsPrintLayout,
@@ -93,7 +99,8 @@ if not TABLE_PATH:
 # Pick sheet (tries to read sheetnames)
 SHEET_NAME = None
 try:
-    from openpyxl import load_workbook
+    if load_workbook is None:
+        raise ImportError("openpyxl saknas")
     wb = load_workbook(TABLE_PATH, read_only=True, data_only=True)
     sheets = wb.sheetnames
     wb.close()
@@ -209,6 +216,8 @@ remove_layers_by_name([
 ])
 
 def excel_to_clean_csv(xlsx_path, sheet_name, out_csv_path, required_headers):
+    if load_workbook is None:
+        raise Exception("Saknar beroende: openpyxl. Installera openpyxl i QGIS Python-miljo.")
     wb = load_workbook(xlsx_path, read_only=True, data_only=True)
     ws = wb[sheet_name]
 
@@ -687,11 +696,26 @@ if USE_DENSE_LABELS:
     R = 10        # meter
     DENSE_MIN = 2 # minst 2 punkter inom R (inkl. sig själv)
 
+    # 0) Skapa stabil nyckel för join (undvik provider-beroende fid)
+    points_id_path = p("punkter_med_id")
+    delete_if_exists(points_id_path)
+    processing.run("native:fieldcalculator", {
+        "INPUT": points,
+        "FIELD_NAME": "pt_id",
+        "FIELD_TYPE": 1,
+        "FIELD_LENGTH": 20,
+        "FIELD_PRECISION": 0,
+        "FORMULA": "$id",
+        "OUTPUT": points_id_path
+    })
+    points_for_density = QgsVectorLayer(points_id_path, "Rödlistningsklass (id)", "ogr")
+    require_valid(points_for_density, f"Could not load points with id: {points_id_path}")
+
     # 1) Skapa buffert runt varje punkt (R meter)
     buf_path = p("punkter_buffer")
     delete_if_exists(buf_path)
     processing.run("native:buffer", {
-        "INPUT": points,
+        "INPUT": points_for_density,
         "DISTANCE": R,
         "SEGMENTS": 8,
         "END_CAP_STYLE": 0,
@@ -708,7 +732,7 @@ if USE_DENSE_LABELS:
     delete_if_exists(counted_poly_path)
     processing.run("native:countpointsinpolygon", {
         "POLYGONS": buf,
-        "POINTS": points,
+        "POINTS": points_for_density,
         "FIELD": "pt_count",   # nytt fält i polygonlagret
         "WEIGHT": "",
         "CLASSFIELD": "",
@@ -718,14 +742,14 @@ if USE_DENSE_LABELS:
     require_valid(buf_counted, f"Could not load counted buffers: {counted_poly_path}")
     print("buf_counted fields:", [f.name() for f in buf_counted.fields()])
 
-    # 3) Join tillbaka pt_count till points via fid
+    # 3) Join tillbaka pt_count till points via stabilt pt_id
     points_counted_path = p("punkter_med_grannar")
     delete_if_exists(points_counted_path)
     processing.run("native:joinattributestable", {
-        "INPUT": points,
-        "FIELD": "fid",
+        "INPUT": points_for_density,
+        "FIELD": "pt_id",
         "INPUT_2": buf_counted,
-        "FIELD_2": "fid",
+        "FIELD_2": "pt_id",
         "FIELDS_TO_COPY": ["pt_count"],
         "METHOD": 1,
         "DISCARD_NONMATCHING": False,
@@ -963,14 +987,14 @@ rows = sorted(rows, key=lambda t: (t[0], t[1]))
 html = ["<div style='font-family: Arial; font-size: 9pt;'>",
         "<b>Artlista</b><br/>",
         "<table cellspacing='0' cellpadding='2' style='border-collapse:collapse;'>",
-        "<tr><th align='left'>Artnr</th><th align='left'>Artnamn</th><th align='left'>Rödlist</th></tr>"]
+        "<tr><th align='left'>Artnr</th><th align='left'>Artnamn</th><th align='left'>Rödlistning</th></tr>"]
 for artnr, art, rl in rows:
     html.append(f"<tr><td>{artnr}</td><td>{art}</td><td>{rl}</td></tr>")
 html.append("</table></div>")
 html = "\n".join(html)
 
 plain_lines = ["Artlista",
-               "Artnr  Artnamn                          Rödlist"]
+               "Artnr  Artnamn                          Rödlistning"]
 for artnr, art, rl in rows:
     plain_lines.append(f"{artnr:<5}  {art[:28]:<28}  {rl}")
 plain_text = "\n".join(plain_lines)
