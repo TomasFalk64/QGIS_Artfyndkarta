@@ -64,6 +64,8 @@ ARTNR_FIELD = "ArtNr"
 
 KNAEROT_NAME = "Knärot"
 BUFFER_DIST = 50
+# Layout: lätt att ändra kartans bredd (mm)
+LAYOUT_MAP_WIDTH_MM = 230
 
 OUT_DIR = r"C:\GIS\output"
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -534,9 +536,16 @@ def make_cat(val, label, col, level):
     return QgsRendererCategory(val, sym, label)
 
 levels = {"CR":7, "EN":6, "VU":5, "NT":4, "DD":3, "LC":2, "S":1}
-
-cats = [make_cat(code, code, color_map[code], levels[code])
-        for code in ["S","LC","DD","NT","VU","EN","CR"]]
+code_order = ["S", "LC", "DD", "NT", "VU", "EN", "CR"]
+present_codes = {
+    str(f[REDLIST_FIELD] or "").strip().upper()
+    for f in points.getFeatures()
+}
+cats = [
+    make_cat(code, code, color_map[code], levels[code])
+    for code in code_order
+    if code in present_codes
+]
 
 renderer_template = QgsCategorizedSymbolRenderer(REDLIST_FIELD, cats)
 renderer_template.setUsingSymbolLevels(True)
@@ -575,6 +584,7 @@ processing.run("native:extractbyexpression", {
 knaerot_pts = QgsVectorLayer(knaerot_pts_path, "Knärot (punkter)", "ogr")
 require_valid(knaerot_pts, f"Could not load Knärot points: {knaerot_pts_path}")
 add_layer(knaerot_pts)
+has_knaerot = knaerot_pts.featureCount() > 0
 
 knaerot_buf_path = final("knaerot_50m")
 buf_res = processing.run("native:buffer", {
@@ -876,7 +886,10 @@ page.setPageSize("A4", QgsLayoutItemPage.Orientation.Landscape)
 
 ## ---- MAP item (left area) ----
 MAP_X, MAP_Y = 0, 0
-MAP_W, MAP_H = 200, 210
+MAP_W, MAP_H = LAYOUT_MAP_WIDTH_MM, 210
+RIGHT_PANEL_GAP = 5
+RIGHT_PANEL_X = MAP_X + MAP_W + RIGHT_PANEL_GAP
+RIGHT_PANEL_W = max(40, 297 - RIGHT_PANEL_X - 7)
 
 map_item = QgsLayoutItemMap(layout)
 layout.addLayoutItem(map_item)
@@ -908,8 +921,8 @@ title.setText("Artfynd")
 title.setFont(QFont("Courier New", 18, QFont.Bold))
 title.setHAlign(Qt.AlignLeft)
 title.setVAlign(Qt.AlignVCenter)
-title.attemptMove(QgsLayoutPoint(215, 10, QgsUnitTypes.LayoutMillimeters))
-title.attemptResize(QgsLayoutSize(75, 18, QgsUnitTypes.LayoutMillimeters))
+title.attemptMove(QgsLayoutPoint(RIGHT_PANEL_X, 10, QgsUnitTypes.LayoutMillimeters))
+title.attemptResize(QgsLayoutSize(RIGHT_PANEL_W, 18, QgsUnitTypes.LayoutMillimeters))
 title.setFrameEnabled(False)
 title.setBackgroundEnabled(True)
 title.setBackgroundColor(Qt.white)
@@ -922,8 +935,9 @@ legend.setStyleFont(QgsLegendStyle.Group, QFont("Courier New", 9))
 legend.setStyleFont(QgsLegendStyle.Subgroup, QFont("Courier New", 9))
 legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("Courier New", 9))
 legend.setTitle("Teckenförklaring")
-legend.attemptMove(QgsLayoutPoint(215, 32, QgsUnitTypes.LayoutMillimeters))
-legend.attemptResize(QgsLayoutSize(75, 70, QgsUnitTypes.LayoutMillimeters))
+LEGEND_Y = 32
+legend.attemptMove(QgsLayoutPoint(RIGHT_PANEL_X, LEGEND_Y, QgsUnitTypes.LayoutMillimeters))
+legend.attemptResize(QgsLayoutSize(RIGHT_PANEL_W, 70, QgsUnitTypes.LayoutMillimeters))
 legend.setFrameEnabled(False)
 legend.setBackgroundEnabled(True)
 legend.setBackgroundColor(Qt.white)
@@ -939,12 +953,18 @@ for child in list(rootg.children()):
     rootg.removeChildNode(child)
 
 # add exactly the layers you want in the legend (order matters)
-# show dissolved protection zone + the categorized points (copy)
-rootg.addLayer(knaerot_diss)
+# show dissolved protection zone only if Knärot exists
+if has_knaerot:
+    rootg.addLayer(knaerot_diss)
 rootg.addLayer(points)
 
 legend.updateLegend()
 layout.addLayoutItem(legend)
+try:
+    # Shrink/expand legend to actual content so spacing below can be dynamic.
+    legend.adjustBoxSize()
+except Exception:
+    pass
 
 # ---- SCALE BAR (bottom-left)
 scalebar = QgsLayoutItemScaleBar(layout)
@@ -1002,10 +1022,14 @@ plain_text = "\n".join(plain_lines)
 artlista = QgsLayoutItemLabel(layout)
 layout.addLayoutItem(artlista)
 
-# position/size in mm (nedre högra hörnet – justera vid behov)
-# x=215, y=120, w=75, h=80 matchar din panel
-artlista.attemptMove(QgsLayoutPoint(210, 105, QgsUnitTypes.LayoutMillimeters))
-artlista.attemptResize(QgsLayoutSize(85, 105, QgsUnitTypes.LayoutMillimeters))
+# Position art list directly under legend (dynamic if legend height changes)
+legend_pos = legend.positionWithUnits()
+legend_size = legend.sizeWithUnits()
+ARTLIST_GAP_MM = 2
+artlista_y = legend_pos.y() + legend_size.height() + ARTLIST_GAP_MM
+artlista_h = max(20, 210 - artlista_y)
+artlista.attemptMove(QgsLayoutPoint(RIGHT_PANEL_X, artlista_y, QgsUnitTypes.LayoutMillimeters))
+artlista.attemptResize(QgsLayoutSize(RIGHT_PANEL_W, artlista_h, QgsUnitTypes.LayoutMillimeters))
 
 # style: white background, no frame
 artlista.setBackgroundEnabled(True)
