@@ -902,7 +902,7 @@ def create_print_layout():
         ":/images/north_arrows/layout_default_north_arrow.svg",
         QgsLayoutItemPicture.FormatSVG
     )
-    north.attemptMove(QgsLayoutPoint(10, 186, QgsUnitTypes.LayoutMillimeters))
+    north.attemptMove(QgsLayoutPoint(10, 188, QgsUnitTypes.LayoutMillimeters))
     north.attemptResize(QgsLayoutSize(12, 12, QgsUnitTypes.LayoutMillimeters))
     north.setLinkedMap(map_item)
     layout.addLayoutItem(north)
