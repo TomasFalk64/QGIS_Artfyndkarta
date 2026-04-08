@@ -87,6 +87,7 @@ knaerot_pts = None
 knaerot_buf = None
 knaerot_diss = None
 has_knaerot = False
+knaerot_pts_count = 0
 cats = []
 renderer_template = None
 
@@ -211,6 +212,11 @@ def remove_layers_pointing_to(path):
 
     for lid in to_remove:
         proj.removeMapLayer(lid)
+
+def remove_layer_by_name(layer_name):
+    proj = QgsProject.instance()
+    for lyr in proj.mapLayersByName(layer_name):
+        proj.removeMapLayer(lyr.id())
 
 def delete_if_exists(path, retries=25, wait_s=0.25):
     if not path or not os.path.exists(path):
@@ -698,7 +704,7 @@ def apply_symbology():
     apply_simple_labels(points_copy, ARTNR_FIELD, size=8)
 
 def create_knaerot_zones():
-    global knaerot_pts, knaerot_buf, knaerot_diss, has_knaerot
+    global knaerot_pts, knaerot_buf, knaerot_diss, has_knaerot, knaerot_pts_count
     # 50 m circles around Knärot only + dissolve + blue fill
     knaerot_pts_path = final("knaerot_punkter")
     processing.run("native:extractbyexpression", {
@@ -715,7 +721,8 @@ def create_knaerot_zones():
     except Exception:
         pass
 
-    has_knaerot = knaerot_pts.featureCount() > 0
+    knaerot_pts_count = knaerot_pts.featureCount()
+    has_knaerot = knaerot_pts_count > 0
 
     knaerot_buf_path = final("knaerot_50m")
     buf_res = processing.run("native:buffer", {
@@ -762,6 +769,17 @@ def arrange_layers():
     # Layer order
     move_layer_name_to_project_top("Rödlistningsklass")
     move_layer_to_bottom(os.path.basename(RASTER_PATH))
+
+def remove_intermediate_layers():
+    for layer_name in [
+        "Punkter (raw)",
+        "Knärot (punkter)",
+        f"Knärot {BUFFER_DIST} m",
+        "Rödlistningsklass (kopia)",
+        "Excel (rensad + LC)",
+        "Excel (rensad CSV)",
+    ]:
+        remove_layer_by_name(layer_name)
 
 def create_print_layout():
     # Create / replace layout
@@ -1083,7 +1101,7 @@ def finalize():
     print("Raster:", RASTER_PATH)
     print("Excel:", TABLE_PATH, "sheet:", SHEET_NAME)
     print("Points:", points.featureCount())
-    print("Knärot points:", knaerot_pts.featureCount())
+    print("Knärot points:", knaerot_pts_count)
 
 # ----------------------------
 # Main execution
@@ -1096,6 +1114,7 @@ def main():
     clean_and_create_points()
     apply_symbology()
     create_knaerot_zones()
+    remove_intermediate_layers()
     # Zoom to all points before creating layout
     iface.mapCanvas().setExtent(points.extent())
     iface.mapCanvas().refresh()
