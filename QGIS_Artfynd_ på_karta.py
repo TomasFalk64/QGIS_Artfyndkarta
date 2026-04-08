@@ -782,6 +782,10 @@ def remove_intermediate_layers():
         remove_layer_by_name(layer_name)
 
 def create_print_layout():
+    # Zoom to all points before creating layout
+    iface.mapCanvas().setExtent(points.extent())
+    iface.mapCanvas().refresh()
+    
     # Create / replace layout
     layout_name = "Artfynd"
     lm = QgsProject.instance().layoutManager()
@@ -898,7 +902,7 @@ def create_print_layout():
         ":/images/north_arrows/layout_default_north_arrow.svg",
         QgsLayoutItemPicture.FormatSVG
     )
-    north.attemptMove(QgsLayoutPoint(10, 180, QgsUnitTypes.LayoutMillimeters))
+    north.attemptMove(QgsLayoutPoint(10, 184, QgsUnitTypes.LayoutMillimeters))
     north.attemptResize(QgsLayoutSize(12, 12, QgsUnitTypes.LayoutMillimeters))
     north.setLinkedMap(map_item)
     layout.addLayoutItem(north)
@@ -1018,7 +1022,6 @@ def optional_dense_labels():
         })
         buf_counted = QgsVectorLayer(counted_poly_path, "buffer_med_antal", "ogr")
         require_valid(buf_counted, f"Could not load counted buffers: {counted_poly_path}")
-        print("buf_counted fields:", [f.name() for f in buf_counted.fields()])
 
         # 3) Join tillbaka pt_count till points via stabilt pt_id
         points_counted_path = p("punkter_med_grannar")
@@ -1037,9 +1040,6 @@ def optional_dense_labels():
 
         points_counted = QgsVectorLayer(points_counted_path, "Rödlistningsklass", "ogr")
         require_valid(points_counted, f"Could not load points_counted: {points_counted_path}")
-       
-
-        print("points_counted fields:", [f.name() for f in points_counted.fields()])
         vals = []
         for i, ft in enumerate(points_counted.getFeatures()):
             vals.append(ft["pt_count"])
@@ -1079,16 +1079,28 @@ def optional_dense_labels():
         add_layer(sparse)
         add_layer(dense)
 
-        # 
+        # Hide original points layer since we're using sparse/dense split
         points.setLabelsEnabled(False)
+        try:
+            root.findLayer(points.id()).setItemVisibilityChecked(False)
+        except Exception:
+            pass
 
         # Sparse: 
         apply_simple_labels(sparse, ARTNR_FIELD, size=8)
         sparse.setRenderer(renderer_template.clone())
         sparse.triggerRepaint()
-        # Dense: 
-        apply_callout_labels(dense, ARTNR_FIELD, dist_mm=2, size=8)  
-        dense.setRenderer(renderer_template.clone())
+        # Dense: smaller point symbol, same label size
+        apply_callout_labels(dense, ARTNR_FIELD, dist_mm=2, size=8)
+        dense_renderer = QgsCategorizedSymbolRenderer(REDLIST_FIELD, [])
+        for cat in renderer_template.categories():
+            sym = cat.symbol().clone()
+            sl = sym.symbolLayer(0)
+            if sl is not None and hasattr(sl, 'setSize'):
+                sl.setSize(1.8)
+            dense_renderer.addCategory(QgsRendererCategory(cat.value(), sym, cat.label()))
+        dense_renderer.setUsingSymbolLevels(True)
+        dense.setRenderer(dense_renderer)
         dense.triggerRepaint()
 
 def finalize():
@@ -1115,9 +1127,6 @@ def main():
     apply_symbology()
     create_knaerot_zones()
     remove_intermediate_layers()
-    # Zoom to all points before creating layout
-    iface.mapCanvas().setExtent(points.extent())
-    iface.mapCanvas().refresh()
     create_print_layout()
     optional_dense_labels()
     arrange_layers()
