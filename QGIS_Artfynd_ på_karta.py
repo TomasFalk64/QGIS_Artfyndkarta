@@ -52,6 +52,9 @@ from qgis.core import (
     
 )
 
+print("Script loaded successfully.")
+print(f"__name__ = {__name__}")
+
 # ----------------------------
 # SETTINGS (defaults)
 # ----------------------------
@@ -67,6 +70,7 @@ LAYOUT_MAP_WIDTH_MM = 230
 OUT_DIR = r"C:\GIS\output"
 os.makedirs(OUT_DIR, exist_ok=True)
 STABLE_FINAL_OUTPUTS = True
+USE_DENSE_LABELS = True
 
 # Global variables
 project = None
@@ -316,6 +320,35 @@ def move_layer_name_to_project_top(layer_name: str) -> bool:
     except RuntimeError:
         return False
 
+def move_layer_to_bottom(layer_name: str) -> bool:
+    root = QgsProject.instance().layerTreeRoot()
+
+    # Hitta layer-id först (utan att hålla kvar tree-node referenser)
+    target_layer = None
+    for lyr in QgsProject.instance().mapLayers().values():
+        if lyr.name() == layer_name:
+            target_layer = lyr
+            break
+    if target_layer is None:
+        return False
+
+    # Hitta noden på nytt och klona den
+    node = root.findLayer(target_layer.id())
+    if node is None:
+        return False
+
+    try:
+        clone = node.clone()
+        # Lägg klonen underst i root
+        root.insertChildNode(len(root.children()), clone)
+        # Ta bort originalnoden (från dess parent)
+        parent = node.parent()
+        if parent is not None:
+            parent.removeChildNode(node)
+        return True
+    except RuntimeError:
+        return False
+
 def build_unique_species_table(points_layer, artnr_field, red_field, name_field):
     mem = QgsVectorLayer("Point?crs=EPSG:3006", "Artlista (unik)", "memory")
     pr = mem.dataProvider()
@@ -392,15 +425,18 @@ def ask_user_for_files():
         wb.close()
 
         if sheets:
+            default_index = 0
+            if "Test" in sheets:
+                default_index = sheets.index("Test")
             chosen, ok = QInputDialog.getItem(
                 None,
                 "Välj blad i Excel",
                 "Blad:",
                 sheets,
-                0,
+                default_index,
                 False
             )
-            SHEET_NAME = chosen if ok and chosen else sheets[0]
+            SHEET_NAME = chosen if ok and chosen else sheets[default_index]
     except Exception:
         # fallback: user must type sheet name or keep default
         chosen, ok = QInputDialog.getText(None, "Bladnamn", "Skriv bladnamn (t.ex. Test):")
@@ -435,6 +471,11 @@ def process_excel_to_table():
     excel_table = QgsVectorLayer(table_uri, "Excel (rensad CSV)", "delimitedtext")
     require_valid(excel_table, f"Could not load cleaned CSV as table: {clean_csv}")
     add_layer(excel_table)
+
+    try:
+        root.findLayer(excel_table.id()).setItemVisibilityChecked(False)
+    except Exception:
+        pass
 
     # Validate fields
     field_names = [f.name() for f in excel_table.fields()]
@@ -472,6 +513,11 @@ def clean_and_create_points():
     require_valid(clean_table, f"Could not load cleaned table with LC: {clean_table_lc_path}")
     add_layer(clean_table)
 
+    try:
+        root.findLayer(clean_table.id()).setItemVisibilityChecked(False)
+    except Exception:
+        pass
+
     # Create points (EPSG:3006)
     target_crs = QgsCoordinateReferenceSystem(f"EPSG:{EPSG}")
     points_raw_path = p("punkter_raw")
@@ -489,6 +535,11 @@ def clean_and_create_points():
     points_raw = QgsVectorLayer(points_raw_path, "Punkter (raw)", "ogr")
     require_valid(points_raw, f"Could not load points_raw: {points_raw_path}")
     add_layer(points_raw)
+
+    try:
+        root.findLayer(points_raw.id()).setItemVisibilityChecked(False)
+    except Exception:
+        pass
 
     # Matcha ArtNr-fält robust (exakt + case/whitespace-insensitive)
     resolved_artnr = resolve_field_name(points_raw, ARTNR_FIELD)
@@ -631,6 +682,12 @@ def apply_symbology():
     require_valid(points_copy, f"Could not load points copy: {points_copy_path}")
     add_layer(points_copy)
 
+    # Hide the copy layer to avoid duplicate labels
+    try:
+        root.findLayer(points_copy.id()).setItemVisibilityChecked(False)
+    except Exception:
+        pass
+
     points_copy.setRenderer(renderer_template.clone())
     points_copy.triggerRepaint()
 
@@ -652,6 +709,12 @@ def create_knaerot_zones():
     knaerot_pts = QgsVectorLayer(knaerot_pts_path, "Knärot (punkter)", "ogr")
     require_valid(knaerot_pts, f"Could not load Knärot points: {knaerot_pts_path}")
     add_layer(knaerot_pts)
+
+    try:
+        root.findLayer(knaerot_pts.id()).setItemVisibilityChecked(False)
+    except Exception:
+        pass
+
     has_knaerot = knaerot_pts.featureCount() > 0
 
     knaerot_buf_path = final("knaerot_50m")
@@ -698,6 +761,7 @@ def create_knaerot_zones():
 def arrange_layers():
     # Layer order
     move_layer_name_to_project_top("Rödlistningsklass")
+    move_layer_to_bottom(os.path.basename(RASTER_PATH))
 
 def create_print_layout():
     # Create / replace layout
@@ -739,9 +803,9 @@ def create_print_layout():
     map_item.setFrameEnabled(True)
 
     # 3) Zooma ENDAST genom extent (påverkar inte storleken)
-    ext = points.extent()
-    ext.scale(1.3)
+    ext = iface.mapCanvas().extent()
     map_item.setExtent(ext)
+    map_item.setScale(iface.mapCanvas().scale())
 
     size = map_item.sizeWithUnits()
     pos = map_item.positionWithUnits()
@@ -884,17 +948,8 @@ def create_print_layout():
     print(f"Layout created: {layout_name}")
 
 def optional_dense_labels():
-    # Tillval - dense sparse etiketter
-    use_dense_labels, ok = QInputDialog.getItem(
-        None,
-        "Etiketter vid överlapp",
-        "Ska etiketter med ledarlinje användas där punkter överlappar?",
-        ["Ja", "Nej"],
-        0,
-        False
-    )
-
-    USE_DENSE_LABELS = ok and use_dense_labels == "Ja"
+    # Always use dense labels as per settings
+    USE_DENSE_LABELS = True
 
     if USE_DENSE_LABELS:
         # räkna grannar
@@ -1041,10 +1096,13 @@ def main():
     clean_and_create_points()
     apply_symbology()
     create_knaerot_zones()
-    arrange_layers()
+    # Zoom to all points before creating layout
+    iface.mapCanvas().setExtent(points.extent())
+    iface.mapCanvas().refresh()
     create_print_layout()
     optional_dense_labels()
+    arrange_layers()
     finalize()
 
-if __name__ == "__main__":
+if __name__ in ("__main__", "__console__"):
     main()
