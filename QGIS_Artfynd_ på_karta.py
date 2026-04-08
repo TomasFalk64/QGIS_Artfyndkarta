@@ -902,7 +902,7 @@ def create_print_layout():
         ":/images/north_arrows/layout_default_north_arrow.svg",
         QgsLayoutItemPicture.FormatSVG
     )
-    north.attemptMove(QgsLayoutPoint(10, 184, QgsUnitTypes.LayoutMillimeters))
+    north.attemptMove(QgsLayoutPoint(10, 186, QgsUnitTypes.LayoutMillimeters))
     north.attemptResize(QgsLayoutSize(12, 12, QgsUnitTypes.LayoutMillimeters))
     north.setLinkedMap(map_item)
     layout.addLayoutItem(north)
@@ -923,7 +923,7 @@ def create_print_layout():
     html = ["<div style='font-family: Arial; font-size: 9pt;'>",
             "<b>Artlista</b>",
             "<table cellspacing='0' cellpadding='2' style='border-collapse:collapse;'>",
-            "<tr><th align='left'>Artnr</th><th align='left'>Artnamn</th><th align='left'>Rödlistning</th></tr>"]
+            "<tr><th align='left'>Artnr</th><th align='left'>Artnamn</th><th align='left'>Rödlista</th></tr>"]
     for artnr, art, rl in rows:
         html.append(f"<tr><td>{artnr}</td><td>{art}</td><td>{rl}</td></tr>")
     html.append("</table></div>")
@@ -1097,7 +1097,7 @@ def optional_dense_labels():
             sym = cat.symbol().clone()
             sl = sym.symbolLayer(0)
             if sl is not None and hasattr(sl, 'setSize'):
-                sl.setSize(1.8)
+                sl.setSize(2.0)
             dense_renderer.addCategory(QgsRendererCategory(cat.value(), sym, cat.label()))
         dense_renderer.setUsingSymbolLevels(True)
         dense.setRenderer(dense_renderer)
