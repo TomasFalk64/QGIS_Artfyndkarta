@@ -443,7 +443,7 @@ def process_excel_to_table():
         raise Exception(f"Missing fields in Excel: {missing}\nAvailable: {field_names}")
 
 def clean_and_create_points():
-    global points
+    global points, ARTNR_FIELD
     # Clean table: keep only numeric Ost/Nord
     clean_expr = f"to_real(\"{X_FIELD}\") IS NOT NULL AND to_real(\"{Y_FIELD}\") IS NOT NULL"
     clean_table_path = p("excel_clean")
@@ -493,7 +493,6 @@ def clean_and_create_points():
     # Matcha ArtNr-fält robust (exakt + case/whitespace-insensitive)
     resolved_artnr = resolve_field_name(points_raw, ARTNR_FIELD)
     if resolved_artnr:
-        global ARTNR_FIELD
         ARTNR_FIELD = resolved_artnr
 
     # Stable species order + ArtNr (do NOT rely on provider order)
