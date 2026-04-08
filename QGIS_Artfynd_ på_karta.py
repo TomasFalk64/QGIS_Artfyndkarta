@@ -52,8 +52,6 @@ from qgis.core import (
     
 )
 
-print("Script loaded successfully.")
-print(f"__name__ = {__name__}")
 
 # ----------------------------
 # SETTINGS (defaults)
