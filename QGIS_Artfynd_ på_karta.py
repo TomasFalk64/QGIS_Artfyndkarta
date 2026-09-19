@@ -48,6 +48,7 @@ from qgis.core import (
     QgsTextFormat,
     QgsUnitTypes,
     QgsVectorLayer,
+    QgsVectorFileWriter,
     QgsVectorLayerSimpleLabeling
     
 )
@@ -78,6 +79,7 @@ RASTER_PATH = None
 TABLE_PATH = None
 SHEET_NAME = None
 raster = None
+polygon_layer = None
 excel_table = None
 points = None
 points_copy = None
@@ -456,6 +458,35 @@ def load_raster():
     require_valid(raster, f"Raster could not be loaded: {RASTER_PATH}")
     add_layer(raster, os.path.basename(RASTER_PATH))
 
+def create_polygon_layer():
+    global polygon_layer
+    # Use a fresh file each run so manually drawn polygons are never overwritten.
+    polygon_path = os.path.join(OUT_DIR, f"anmalan_{run_id}.geojson")
+    empty = QgsVectorLayer(f"Polygon?crs=EPSG:{EPSG}", "Anmälan", "memory")
+    options = QgsVectorFileWriter.SaveVectorOptions()
+    options.driverName = "GeoJSON"
+    options.fileEncoding = "UTF-8"
+    result = QgsVectorFileWriter.writeAsVectorFormatV3(
+        empty, polygon_path, project.transformContext(), options
+    )
+    if result[0] != QgsVectorFileWriter.NoError:
+        raise Exception(f"Could not create polygon layer: {result[1]}")
+
+    # Empty GeoJSON has no geometry schema; explicitly load it as a polygon layer.
+    polygon_layer = QgsVectorLayer(
+        f"{polygon_path}|geometrytype=Polygon", "Anmälan", "ogr"
+    )
+    require_valid(polygon_layer, f"Could not load polygon layer: {polygon_path}")
+    symbol = QgsFillSymbol.createSimple({
+        "style": "no",
+        "outline_style": "solid",
+        "outline_color": "255,0,0,255",
+        "outline_width": "0.6",
+        "outline_width_unit": "MM",
+    })
+    polygon_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+    add_layer(polygon_layer)
+
 def process_excel_to_table():
     global excel_table
     # Bygg en rensad CSV från Excel (hoppar metadata-rader automatiskt)
@@ -766,6 +797,11 @@ def create_knaerot_zones():
 def arrange_layers():
     # Layer order
     move_layer_name_to_project_top("Rödlistningsklass")
+    # Put the editable polygon below the protection zone, directly above the raster.
+    node = root.findLayer(polygon_layer.id())
+    if node is not None:
+        root.addChildNode(node.clone())
+        node.parent().removeChildNode(node)
     move_layer_to_bottom(os.path.basename(RASTER_PATH))
 
 def remove_intermediate_layers():
@@ -852,7 +888,7 @@ def create_print_layout():
     legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("Courier New", 9))
     legend.setTitle("Teckenförklaring")
     LEGEND_Y = 32
-    legend_item_count = len(cats) + (1 if has_knaerot else 0)
+    legend_item_count = len(cats) + 1 + (1 if has_knaerot else 0)
     LEGEND_BASE_H_MM = 16
     LEGEND_ROW_H_MM = 6
     legend_h = max(28, min(120, LEGEND_BASE_H_MM + legend_item_count * LEGEND_ROW_H_MM))
@@ -863,8 +899,9 @@ def create_print_layout():
     legend.setBackgroundColor(Qt.white)
     legend.setLinkedMap(map_item)
     legend.setAutoUpdateModel(False)
+    legend.setLegendFilterByMapEnabled(False)
 
-    # keep only: knaerot dissolved + points_copy (categorized)
+    # Keep the point classes, editable polygon and optional protection zone.
     model = legend.model()
     rootg = model.rootGroup()
 
@@ -873,10 +910,11 @@ def create_print_layout():
         rootg.removeChildNode(child)
 
     # add exactly the layers you want in the legend (order matters)
+    rootg.addLayer(points)
+    rootg.addLayer(polygon_layer)
     # show dissolved protection zone only if Knärot exists
     if has_knaerot:
         rootg.addLayer(knaerot_diss)
-    rootg.addLayer(points)
 
     legend.updateLegend()
     layout.addLayoutItem(legend)
@@ -1095,7 +1133,7 @@ def optional_dense_labels():
             sym = cat.symbol().clone()
             sl = sym.symbolLayer(0)
             if sl is not None and hasattr(sl, 'setSize'):
-                sl.setSize(2.0)
+                sl.setSize(3.0)
             dense_renderer.addCategory(QgsRendererCategory(cat.value(), sym, cat.label()))
         dense_renderer.setUsingSymbolLevels(True)
         dense.setRenderer(dense_renderer)
@@ -1120,6 +1158,7 @@ def main():
     initialize_globals()
     ask_user_for_files()
     load_raster()
+    create_polygon_layer()
     process_excel_to_table()
     clean_and_create_points()
     apply_symbology()
